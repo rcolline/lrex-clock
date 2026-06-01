@@ -1,40 +1,37 @@
-# Luminous Rex Clock Update Tool
+# Luminous Rex Clock Update Tool (Linux)
 
-This Python script updates your  [Luminous Rex clock](https://www.luminousrex.com/clocks) time via USB.  The script has been tested on a few different Linux distributions, and works well on a Raspberry Pi.
+This Python script updates your [Luminous Rex clock](https://www.luminousrex.com/clocks) time via a standard serial port on Linux.
 
 ## Requirements
 
-1. Python >=3
-2. [libftdi](https://www.intra2net.com/en/developer/libftdi/)
-3. [pylibftdi](https://github.com/codedstructure/pylibftdi) 
+1. Python >= 3.6
+2. [pyserial](https://pythonhosted.org/pyserial/)
 
 ## Installation
 
-First, install the the required libraries: 
+Install the required Python library:
 
-```
-pip install pylibftdi
-sudo apt-get install libftdi-dev
-```
-
-In order to access the usb serial device from a user account, add a udev rule for libftdi:
-
-```
-sudo vi /etc/udev/rules.d/99-libftdi.rules
+```bash
+pip install pyserial
 ```
 
-Add the following lines to the rules file: 
+### Permissions
+In order to access the USB serial device without root, ensure your user is in the `dialout` group:
 
+```bash
+sudo usermod -a -G dialout $USER
 ```
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", GROUP="dialout", MODE="0660"
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6010", GROUP="dialout", MODE="0660"
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", GROUP="dialout", MODE="0660"
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", GROUP="dialout", MODE="0660"
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", GROUP="dialout", MODE="0660"
+*(You may need to log out and back in for this to take effect.)*
+
+## Usage
+
+Connect the Luminous Rex clock to a USB port and verify it appears as `/dev/ttyUSB0`. Then run:
+
+```bash
+python3 lrexclock.py
 ```
 
-Connect the Luminous Rex clock to a USB port.  Wait 5-10 seconds for it to connect.  Run the script to update the clock's time:
-
-```
-python lrexclock.py
-```
+The script will:
+1. Synchronize the clock's time with your system clock.
+2. Set the display brightness to maximum.
+3. Output a hexadecimal trace of the communication if `DEBUG` is enabled.

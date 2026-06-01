@@ -1,13 +1,12 @@
-# Luminous Rex Clock Update Tool
+# Luminous Rex Clock Update Tool (Linux Fork)
 
-## Windows App
+This is a Linux-exclusive fork of the Luminous Rex clock update tool. It has been refactored to work specifically with standard serial devices (e.g., `/dev/ttyUSB0`) on Linux systems.
 
-Download the Luminous Rex Clock app for Windows here: [Windows Installer](https://storage.googleapis.com/luminous-rex.appspot.com/LuminousRexClockInstaller.exe)
+## Key Features (Linux Only)
+- **Serial Port Communication:** Uses `pyserial` for broad compatibility with Linux USB-to-Serial bridges.
+- **I/O Capture & Logging:** Includes a `DEBUG` mode that provides a hexadecimal dump of all transmitted (`TX`) and received (`RX`) data.
+- **64-bit Compatible:** Fixed protocol alignment issues that cause crashes on 64-bit Linux distributions.
+- **Simplified Configuration:** No proprietary FTDI drivers required; works with standard kernel drivers.
 
-## MacOS App
-
-Download the Luminous Rex Clock app for MacOS here: [MacOS Installer](https://storage.googleapis.com/luminous-rex.appspot.com/LuminousRexClockInstaller.dmg)
-
-## Python App
-
-Alternatively, you can also run a Python-based tool to update the clock.  Get the Luminous Rex Clock Python script [here](./python)
+## Getting Started
+See the [python directory](./python) for installation and usage instructions specific to Linux.

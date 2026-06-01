@@ -1,122 +1,138 @@
 """
-
 This script updates any attached Luminous Rex clock to
-the current system time.  
+the current system time or a specified time.
 
 https://www.luminousrex.com/clocks
-
 """
 
-import sys 
+import sys
 import datetime, time
 import struct
+import serial
+import argparse
 
-# Determine which FTDI library to use.
-# Set True to use FTD2XX (Windows).  
-# Set False to use pylibftdi (Linux)
-FTD2XX = False 
-# FTD2XX timeout in msec
-FTDI_TIMEOUT = 1000
+def log_write(dev, data, debug=False):
+    if debug:
+        print(f"TX: {data.hex(' ')}")
+    dev.write(data)
 
-if FTD2XX:
-	import ftd2xx as ftd
-else:
-	import pylibftdi as ftdi
+def log_read(dev, n, debug=False):
+    data = dev.read(n)
+    data = bytes(data)
+    if debug:
+        print(f"RX: {data.hex(' ')}")
+    return data
 
-"""
-// eeprom c configuration struct
-// 128 bytes in length
-struct configuration_data_t
-{
-	uint32_t version;
-	uint32_t timestamp_initialized;
-	uint32_t timestamp;
+def main():
+    parser = argparse.ArgumentParser(
+        description="Update Luminous Rex clock time and brightness."
+    )
+    parser.add_argument(
+        "-p", "--port", default="/dev/ttyUSB0",
+        help="Serial port (default: /dev/ttyUSB0)"
+    )
+    parser.add_argument(
+        "-b", "--brightness", type=int, default=255,
+        help="Brightness 0-255 (default: 255)"
+    )
+    parser.add_argument(
+        "-t", "--time",
+        help="ISO 8601 time string (e.g. 2026-05-30T18:00:00). "
+             "Defaults to system time."
+    )
+    parser.add_argument(
+        "-d", "--debug", action="store_true", default=True,
+        help="Enable hex I/O logging (default: True)"
+    )
+    parser.add_argument(
+        "--no-debug", action="store_false", dest="debug",
+        help="Disable hex I/O logging"
+    )
 
-	uint8_t  brightness_hours;
-	uint8_t  brightness_minutes;
-	uint8_t  brightness_seconds;
-	uint8_t  is_24_hour;
+    args = parser.parse_args()
 
-	int16_t calibration_value;
+    if args.brightness < 0 or args.brightness > 255:
+        print("Error: Brightness must be between 0 and 255.")
+        sys.exit(1)
 
-	// pad out to 128 bytes
-	uint8_t padding[110];
-};
-"""
+    # Command constants
+    CMD_WRITE_EEPROM_STRUCT = 3
+    CMD_READ_EEPROM_STRUCT = 4
+    CMD_RESPONSE_OK = 0
 
-CMD_PING = 0
-CMD_SET_UNIX_TIMESTAMP = 1
-CMD_GET_UNIX_TIMESTAMP = 2
-CMD_WRITE_EEPROM_STRUCT = 3
-CMD_READ_EEPROM_STRUCT = 4
+    # Open the device
+    try:
+        dev = serial.Serial(args.port, 1000000, timeout=1)
+    except serial.SerialException as e:
+        print(f"Error opening serial port {args.port}: {e}")
+        sys.exit(1)
 
-CMD_RESPONSE_OK = 0
-CMD_RESPONSE_ERROR = 1 
+    # 1. Read current state
+    cmd = [0] * 16
+    cmd[0] = CMD_READ_EEPROM_STRUCT
+    log_write(dev, bytes(cmd), args.debug)
 
-# open the first ftdi device found.
-if FTD2XX:
-	dev = ftd.open(0)
-	dev.setTimeouts(FTDI_TIMEOUT, FTDI_TIMEOUT)
-	dev.setBaudRate(1000000)
-	dev.setDataCharacteristics(ftd.defines.BITS_8, ftd.defines.STOP_BITS_1, ftd.defines.PARITY_NONE)
-	dev.setFlowControl(ftd.defines.FLOW_NONE)
-else:
-	ftdi.USB_PID_LIST.append(0x6015)
-	dev = ftdi.Device()
-	dev.baudrate = 1000000
-	dev.ftdi_fn.ftdi_set_line_property(8, 1, 0)
-	dev.ftdi_fn.ftdi_setflowctrl(0)
-	dev.ftdi_fn.ftdi_set_latency_timer(500)
+    response = log_read(dev, 128, args.debug)
+    if len(response) < 128:
+        print("Error: Failed to read 128 bytes from clock.")
+        sys.exit(1)
 
-# generate read eeprom struct command
-cmd = []
-for i in range(16):
-	cmd.append(0)
-cmd[0] = CMD_READ_EEPROM_STRUCT
+    (version, timestamp_initialized, timestamp, brightness_hours,
+     brightness_minutes, brightness_seconds, is_24_hour,
+     calibration_value, padding) = struct.unpack('<IIIBBBBh110s', response)
 
-# send command
-dev.write(bytes(cmd))
+    # 2. Determine target time
+    if args.time:
+        try:
+            dt = datetime.datetime.fromisoformat(args.time)
+            # If no timezone info, assume local time and convert to epoch
+            pc_epoch = int(dt.timestamp())
+            pc_offset = 0 # handles local vs utc if tz is present or not
+        except ValueError as e:
+            print(f"Error parsing time: {e}")
+            sys.exit(1)
+    else:
+        pc_epoch = int(time.time())
+        if time.localtime().tm_isdst and time.daylight:
+            pc_offset = time.altzone
+        else:
+            pc_offset = time.timezone
 
-# wait for response
-response = dev.read(128)
+    error_seconds = timestamp - (pc_epoch - pc_offset)
 
-version, timestamp_initialized, timestamp, brightness_hours, brightness_minutes, brightness_seconds, is_24_hour, calibration_value, padding = struct.unpack('LLLBBBBh110s', response)
+    print(f"Clock epoch: {timestamp}")
+    print(f"Target epoch: {pc_epoch - pc_offset}")
+    print(f"Lrex clock is {error_seconds} seconds ahead of target\n")
 
-# get current system time.
-pc_epoch = int(time.time())
-# if local time is within daylight savings and a
-# dst offset is defined, use the dst altzone for UTC offset
-if time.localtime().tm_isdst and time.daylight:
-	pc_offset = time.altzone
-else:
-	pc_offset = time.timezone
+    # 3. Update values
+    timestamp = pc_epoch - pc_offset
+    brightness_hours = args.brightness
+    brightness_minutes = args.brightness
+    brightness_seconds = args.brightness
 
-error_seconds = timestamp - (pc_epoch - pc_offset)
+    # 4. Write back
+    cmd = [0] * 16
+    cmd[0] = CMD_WRITE_EEPROM_STRUCT
+    log_write(dev, bytes(cmd), args.debug)
 
-print("clock epoch: " + str(timestamp))
-print("pc epoch: " + str(pc_epoch - pc_offset))
-print("Lrex clock is " + str(error_seconds) + " seconds ahead of the system clock\n")
+    response = log_read(dev, 1, args.debug)
+    if not response or response[0] != CMD_RESPONSE_OK:
+        print("Error: Clock did not acknowledge write command.")
+        sys.exit(1)
 
-# set the current time and leave all other configuration values unchanged.
-timestamp = pc_epoch - pc_offset
+    cmd_data = struct.pack(
+        '<IIIBBBBh110s', version, timestamp_initialized, timestamp,
+        brightness_hours, brightness_minutes, brightness_seconds,
+        is_24_hour, calibration_value, padding
+    )
+    log_write(dev, bytes(cmd_data), args.debug)
 
-# send write eeprom struct command
-cmd[0] = CMD_WRITE_EEPROM_STRUCT
-dev.write(bytes(cmd))
+    response = log_read(dev, 1, args.debug)
+    if not response or response[0] != CMD_RESPONSE_OK:
+        print("Error: Clock did not acknowledge data write.")
+        sys.exit(1)
+    else:
+        print("Clock successfully updated.")
 
-# wait for response
-response = dev.read(1)
-if CMD_RESPONSE_OK != response[0]:
-	print("Error in response from lrex clock.")
-	exit()
-
-cmd_data = struct.pack('LLLBBBBh110s', version, timestamp_initialized, timestamp, brightness_hours, brightness_minutes, brightness_seconds, is_24_hour, calibration_value, padding)
-dev.write(bytes(cmd_data))
-
-# wait for response
-response = dev.read(1)
-if CMD_RESPONSE_OK != response[0]:
-	print("Error in response from lrex clock.")
-	exit()
-else:
-	print("Clock time has been updated.")
+if __name__ == "__main__":
+    main()
