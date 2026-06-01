@@ -12,7 +12,7 @@ This Python script updates your [Luminous Rex clock](https://www.luminousrex.com
 Install the required Python library:
 
 ```bash
-pip install pyserial
+pip3 install pyserial
 ```
 
 ### Permissions
